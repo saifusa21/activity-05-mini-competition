@@ -1,8 +1,190 @@
 ---
-title: "Activity 5 - Mini-competition Explorations"
+title: "Activity 5 - Mini-competition Explorations (Group-C)"
 output: github_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
 ```
+
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+
+library(ggplot2)
+library(RColorBrewer)
+library(rgdal)
+library(gridExtra)
+library(rgeos)
+library(readr)
+library(corrplot)
+library(xlsx2dfs)
+library(lmtest, pos=4)
+library(tidyverse)
+library(gapminder)
+library(gganimate)
+library(car)
+library(olsrr)
+library(GGally)
+
+```
+
+## Reading in the Datafile
+
+```{r, warning=FALSE, message=FALSE}
+
+## Reading in data for producing graphs
+
+# stdnt <- read.csv("./data/allendale-students.csv")
+stdnt <- read_csv(here::here("competition-files","data","allendale-students.csv"))
+
+head(stdnt)
+dim(stdnt)
+
+stdnt$housing <- as.factor(stdnt$housing)
+stdnt$major <- as.factor(stdnt$major)
+
+```
+
+```{r}
+skimr::skim(stdnt)
+```
+
+
+```{r}
+summary(stdnt)
+
+```
+
+## Identifying the outliers
+
+```{r}
+boxplot(stdnt$distance, col = "orange", horizontal = TRUE )
+boxplot(stdnt$scholarship, col = "orange", horizontal = TRUE )
+boxplot(stdnt$parents, col = "orange", horizontal = TRUE )
+boxplot(stdnt$car, col = "orange", horizontal = TRUE )
+boxplot(stdnt$debt, col = "orange", horizontal = TRUE )
+```
+## Normalizing the data
+
+### Dealing with outliers
+
+```{r}
+normdata <- stdnt %>% 
+  filter(distance < 250) %>% 
+  filter(scholarship < 11000) %>% 
+  filter(car > 2) %>% 
+  filter(debt > 10000)
+boxplot(normdata$distance, col = "orange", horizontal = TRUE, main = "Boxplot of distance")
+boxplot(normdata$scholarship, col = "orange", horizontal = TRUE, main = "Boxplot of scholarship" )
+boxplot(stdnt$parents, col = "orange", horizontal = TRUE, main = "Boxplot of parents")
+boxplot(normdata$car, col = "orange", horizontal = TRUE, main = "Boxplot of car" )
+boxplot(normdata$debt, col = "orange", horizontal = TRUE, main = "Boxplot of debt")
+```
+
+
+```{r}
+hist(normdata$distance)
+hist(normdata$scholarship)
+hist(normdata$parents)
+hist(normdata$car)
+hist(normdata$debt)
+
+boxplot(debt~housing, data = normdata, main = "Boxplot of debt by housing type", xlab = "Housing type", ylab = "Debt", col=topo.colors(7))
+boxplot(debt~major, data = normdata, main = "Boxplot of debt by major type", xlab = "Major type", ylab = "Debt", col=topo.colors(7))
+
+ggplot(normdata, aes(x = factor(car), y = debt, fill = major, colour = major)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+    labs(x="Age of car (in years)", y="Student debt (in dollars)") +
+      theme_bw() + 
+        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+          theme(legend.position = c(0.1, 0.85))
+
+ggplot(normdata, aes(x = factor(car), y = scholarship, fill = major, colour = major)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+    labs(x="Age of car (in years)", y="Scholarship (in dollars)") +
+      theme_bw() + 
+        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+          theme(legend.position = c(0.1, 0.85))
+```
+
+```{r}
+normdata <- normdata %>% mutate(sqrt_distance = sqrt(distance), sqrt_scholarship = sqrt(scholarship))
+```
+
+```{r}
+hist(normdata$sqrt_distance)
+hist(normdata$sqrt_scholarship)
+```
+
+
+```{r}
+normdata <- normdata %>% select(debt,distance, scholarship, parents, car, housing, major, sqrt_distance, sqrt_scholarship)
+
+```
+
+
+```{r}
+normdata %>% select(debt,distance, scholarship, parents, car) %>% ggpairs
+normdata %>% select(debt,sqrt_distance, sqrt_scholarship, parents, car) %>% ggpairs
+```
+
+
+```{r}
+corr_matrix <- cor(normdata[,c("sqrt_distance", "sqrt_scholarship", "parents", "car", "debt")], use = "everything")
+round(corr_matrix, 3)
+corrplot.mixed(corr_matrix, lower.col = "black", number.cex = .7, upper = "ellipse")
+```
+
+It seems like sqrt_distance has the strongest linear relationship with debt.
+
+```{r}
+model.1 <- lm(debt~sqrt_distance, data=normdata)
+summary(model.1)
+```
+
+Only 14.9% of the variability in debt that is accounted for this model. 
+
+```{r}
+model.2 <- lm(debt~sqrt_distance+sqrt_scholarship+parents+car+housing+major, data=normdata)
+summary(model.2)
+```
+
+In this model, 69.1% of the variability in debt is accounted. and, we noticed that car has the largest p-value and thus least significant. We could remove it from the model and return the analysis. 
+
+```{r}
+model.3 <- lm(debt~sqrt_distance+sqrt_scholarship+parents+housing+major, data=normdata)
+summary(model.3)
+```
+
+Similarly, we could remove housing from the model and return analysis.
+
+```{r}
+model.4 <- lm(debt~sqrt_distance+sqrt_scholarship+parents+major, data=normdata)
+summary(model.4)
+```
+
+Now, let's remove major from the model. 
+
+```{r}
+model.5 <- lm(debt~sqrt_distance+sqrt_scholarship+parents, data=normdata)
+summary(model.5)
+```
+
+Finally, 67.97% of the variability in student debt is accounted for in this multiple linear regression model. 
+
+```{r}
+ols_vif_tol(model.5)
+```
+
+The VIF score represents that multicollinearity does not exist in this model. Also, These score indicates that the variables are moderately correlated.
+
+
+## Residual Analysis
+
+```{r}
+bptest(debt~sqrt_distance+sqrt_scholarship+parents, varformula = ~ fitted.values(model.5), studentize=TRUE, data=normdata)
+plot(model.5)
+```
+
+The insignificant p-value indicates that residuals have constant variance.  
